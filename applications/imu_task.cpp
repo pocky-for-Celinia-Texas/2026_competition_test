@@ -5,7 +5,7 @@
 
 // ===================== 可选：IMU 加热 =====================
 // 改成 1 时，要把 sp_middleware/tools/pid/pid.cpp 也加进 CMakeLists.txt
-#define IMU_HEAT_ENABLE 0
+#define IMU_HEAT_ENABLE 1
 
 #if IMU_HEAT_ENABLE
 #include "tim.h"
@@ -15,8 +15,8 @@
 namespace
 {
 // --------------------- 任务参数 ---------------------
-constexpr uint32_t kPeriodMs = 1;                  // 任务周期 1 ms
-constexpr float    kDt       = kPeriodMs * 1e-3f;  // Mahony/PID 的 dt，必须与任务周期严格一致
+constexpr uint32_t kPeriodMs = 1;         // 任务周期 1 ms
+constexpr float kDt = kPeriodMs * 1e-3f;  // Mahony/PID 的 dt，必须与任务周期严格一致
 
 // 传感器系{b} -> 机器人系{a} 的旋转矩阵（readme 里的 r_ab）
 // 这是 C 板横装在云台上、CAN 一侧朝前时的取值；三轴符号不对就改这里，别动驱动
@@ -24,14 +24,14 @@ constexpr float kRAb[3][3] = {{0.0f, -1.0f, 0.0f}, {1.0f, 0.0f, 0.0f}, {0.0f, 0.
 
 #if IMU_HEAT_ENABLE
 // --------------------- 加热参数 ---------------------
-constexpr float    kImuTemp        = 50.0f;    // 目标温度 ℃
-constexpr float    kImuTempKp      = 400.0f;   // 发热丝功率不同需要微调
-constexpr float    kImuTempKi      = 0.0f;
-constexpr float    kImuTempKd      = 0.0f;
-constexpr float    kImuTempMaxOut  = 2000.0f;  // 限制最大输出，防止静态积分时全功率烘烤
-constexpr float    kImuTempMaxIOut = 0.0f;
-constexpr uint16_t kImuTempPwmFull = 4000;     // 温差还很大时的预热占空比（满量程 5000）
-constexpr float    kImuTempBand    = 10.0f;    // 进入 PID 调节的温差
+constexpr float kImuTemp = 50.0f;     // 目标温度 ℃
+constexpr float kImuTempKp = 400.0f;  // 发热丝功率不同需要微调
+constexpr float kImuTempKi = 0.0f;
+constexpr float kImuTempKd = 0.0f;
+constexpr float kImuTempMaxOut = 2000.0f;  // 限制最大输出，防止静态积分时全功率烘烤
+constexpr float kImuTempMaxIOut = 0.0f;
+constexpr uint16_t kImuTempPwmFull = 4000;  // 温差还很大时的预热占空比（满量程 5000）
+constexpr float kImuTempBand = 10.0f;       // 进入 PID 调节的温差
 #endif
 }  // namespace
 
@@ -93,8 +93,7 @@ extern "C" void imu_task()
     // plotter.plot(imu.roll, imu.pitch, imu.yaw,
     //              bmi088.gyro[0], bmi088.gyro[1], bmi088.gyro[2]);
     plotter.plot(
-      bmi088.acc[0], bmi088.acc[1], bmi088.acc[2], bmi088.gyro[0], bmi088.gyro[1],
-      bmi088.gyro[2]);
+      bmi088.acc[0], bmi088.acc[1], bmi088.acc[2], bmi088.gyro[0], bmi088.gyro[1], bmi088.gyro[2]);
 
     osDelay(kPeriodMs);
   }

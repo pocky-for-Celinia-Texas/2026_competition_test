@@ -53,6 +53,7 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     sp_middleware/tools/mahony/mahony.cpp # <- 添加这一行
     sp_middleware/tools/gimbal/gimbal.cpp # <- 添加这一行
     sp_middleware/io/plotter/plotter.cpp # <- 添加这一行
+    sp_middleware/tools/pid/pid.cpp
      # Add user sources here
 )
 
