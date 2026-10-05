@@ -5,7 +5,7 @@
 
 // ===================== 可选：IMU 加热 =====================
 // 改成 1 时，要把 sp_middleware/tools/pid/pid.cpp 也加进 CMakeLists.txt
-#define IMU_HEAT_ENABLE 1
+#define IMU_HEAT_ENABLE 0
 
 #if IMU_HEAT_ENABLE
 #include "tim.h"
