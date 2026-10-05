@@ -54,6 +54,8 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     sp_middleware/tools/gimbal/gimbal.cpp # <- 添加这一行
     sp_middleware/io/plotter/plotter.cpp # <- 添加这一行
     sp_middleware/tools/pid/pid.cpp
+    applications/uart_task.cpp # <- 遥控器 DBUS
+    sp_middleware/io/dbus/dbus.cpp # <- 遥控器 DBUS
      # Add user sources here
 )
 
