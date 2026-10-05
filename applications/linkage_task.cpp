@@ -21,12 +21,12 @@
 //
 // 其中 psi 是 C 板 imu 的 yaw（已连续化），c1/c2 是参考姿态下两台电机的角度。
 // 两个目标都只与 psi 有关、彼此解耦，因此：
-//   · C 板转 dpsi  ->  A 转 dpsi，B 转 k*dpsi          
+//   · C 板转 dpsi  ->  A 转 dpsi，B 转 k*dpsi            （题目要求 1、4）
 //   · 手动转 A 角度 d（C 板不动）：
 //       c1 变成 c1+d，由 thetaB - thetaA = k(thetaA - psi) 得 c2 变成 c2+k*d
-//       -> B 跟 k*d，且轴线关系 thetaB - thetaA = k(thetaA - psi) 始终成立
-//   · 手动转 B 角度 d（C 板不动）：A 跟 d/k（|k|≠1 时），即 1/k 比例  
-//   · 手动结束后 c1/c2 就停在新的数值上，不会回到原零点 
+//       -> B 跟 k*d，且轴线关系 thetaB - thetaA = k(thetaA - psi) 始终成立   （题目要求 2）
+//   · 手动转 B 角度 d（C 板不动）：A 跟 d/k（|k|≠1 时），即 1/k 比例               （题目要求 2）
+//   · 手动结束后 c1/c2 就停在新的数值上，不会回到原零点                        （题目要求 3）
 //
 // ★ 为什么不用"两个目标同步平移 dpsi"的写法：那样在 k = -1 时会丢掉 1:-1 的耦合
 //   （dpsi 平移无法同时满足 thetaB-thetaA = k(thetaA-psi)），本写法对任意 k 都成立。
@@ -50,7 +50,7 @@ constexpr float kPosMaxOut = 12.0f;  // 限速 rad/s
 
 constexpr float kSpdKp = 1.2f;
 constexpr float kSpdKi = 0.3f;
-constexpr float kSpdMaxOut = 0.5f;   // 转矩上限 N·m（6020 额定 0.741*3 ≈ 2.22 N·m）
+constexpr float kSpdMaxOut = 1.5f;   // 转矩上限 N·m（6020 额定 0.741*3 ≈ 2.22 N·m）
 constexpr float kSpdMaxIOut = 0.5f;
 
 // ------------------------- 手动转动检测 -------------------------
@@ -216,9 +216,18 @@ private:
   }
 
   // 重建参考姿态：保持两台电机当前角度不动（目标不变），psi_ref 取当前 yaw
+  //
+  // ★ psi_ref_ 必须与 TargetA/TargetB 的 psi 用同一个坐标系（连续 yaw）。
+  //   这里曾写成 imu.yaw（±π 缠绕值），而 Command() 传入的是 Update() 解缠后的连续值，
+  //   一旦 C 板 yaw 累计转过 ±180°，psi - psi_ref_ 就会整体偏 2π 的整数倍：
+  //     · 换档瞬间两台电机目标各跳一整圈；
+  //     · 更糟的是手动检测用 TargetA(psi_prev) - motor_a.angle 算误差，
+  //       那个 2π 常量偏置会让误差每帧都超过 kManualEnterRad，电机被永久判定为"人在掰"、
+  //       一直输出 0 转矩而完全不响应遥控。
+  //   改用 YawEstimate()（只读不推进，与 Update() 里的 psi 同源）后两个坐标系才统一。
   void RebaseToCurrent()
   {
-    psi_ref_ = imu.yaw;
+    psi_ref_ = sp_app::YawEstimate();
     SetRef(sp_app::motor_a.angle, sp_app::motor_b.angle);
   }
 
