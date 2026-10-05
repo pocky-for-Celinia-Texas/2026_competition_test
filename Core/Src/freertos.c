@@ -51,6 +51,7 @@ osThreadId defaultTaskHandle;
 osThreadId LEDTaskHandle;
 osThreadId buzzertaskHandle;
 osThreadId imutaskHandle;
+osThreadId linkagetaskHandle;
 
 /* Private function prototypes -----------------------------------------------*/
 /* USER CODE BEGIN FunctionPrototypes */
@@ -61,6 +62,7 @@ void StartDefaultTask(void const * argument);
 extern void led_task(void const * argument);
 extern void buzzer_task(void const * argument);
 extern void imu_task(void const * argument);
+extern void linkage_task(void const * argument);
 
 void MX_FREERTOS_Init(void); /* (MISRA C 2004 rule 8.1) */
 
@@ -122,6 +124,10 @@ void MX_FREERTOS_Init(void) {
   /* definition and creation of imutask */
   osThreadDef(imutask, imu_task, osPriorityNormal, 0, 512);
   imutaskHandle = osThreadCreate(osThread(imutask), NULL);
+
+  /* definition and creation of linkagetask */
+  osThreadDef(linkagetask, linkage_task, osPriorityNormal, 0, 512);
+  linkagetaskHandle = osThreadCreate(osThread(linkagetask), NULL);
 
   /* USER CODE BEGIN RTOS_THREADS */
   /* add threads, ... */

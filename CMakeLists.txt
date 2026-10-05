@@ -56,6 +56,10 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     sp_middleware/tools/pid/pid.cpp
     applications/uart_task.cpp # <- 遥控器 DBUS
     sp_middleware/io/dbus/dbus.cpp # <- 遥控器 DBUS
+    applications/linkage_task.cpp # <- 4.4.1.2 姿态联动
+    sp_middleware/io/can/can.cpp # <- 4.4.1.2 姿态联动
+    sp_middleware/motor/rm_motor/rm_motor.cpp # <- 4.4.1.2 姿态联动
+    sp_middleware/tools/math_tools/math_tools.cpp # <- pid 依赖 limit_angle
      # Add user sources here
 )
 
