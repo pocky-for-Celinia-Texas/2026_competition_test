@@ -7,7 +7,7 @@
 // 默认开启：PWM 走 PF6 / TIM10_CH1（C 板），温度反馈用 BMI088 自带温度传感器。
 // 依赖 sp_middleware/tools/pid/pid.cpp，需已在 CMakeLists.txt 的 target_sources 里。
 // 没有接加热电阻、或 PF6 另有用途时改成 0。
-#define IMU_HEAT_ENABLE 1
+#define IMU_HEAT_ENABLE 0
 
 #if IMU_HEAT_ENABLE
 #include "tim.h"
@@ -147,10 +147,9 @@ extern "C" void imu_task()
 
     // 三轴加速度 + 三轴角速度：一帧 6 通道 27 字节 ≈ 0.29 ms @921600，1 kHz 发送很安全
     // 想连姿态角一起看就换成：
-    // plotter.plot(imu.roll, imu.pitch, imu.yaw,
-    //              bmi088.gyro[0], bmi088.gyro[1], bmi088.gyro[2]);
-    plotter.plot(
-      bmi088.acc[0], bmi088.acc[1], bmi088.acc[2], bmi088.gyro[0], bmi088.gyro[1], bmi088.gyro[2]);
+    plotter.plot(imu.roll, imu.pitch, imu.yaw, bmi088.gyro[0], bmi088.gyro[1], bmi088.gyro[2]);
+    //plotter.plot(
+    //  bmi088.acc[0], bmi088.acc[1], bmi088.acc[2], bmi088.gyro[0], bmi088.gyro[1], bmi088.gyro[2]);
 
     osDelay(kPeriodMs);
   }
