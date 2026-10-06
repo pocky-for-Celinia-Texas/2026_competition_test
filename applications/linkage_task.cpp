@@ -1,8 +1,7 @@
-#include "cmsis_os.h"
-
 #include <cmath>
 
 #include "attitude.hpp"
+#include "cmsis_os.h"
 #include "linkage.hpp"
 #include "tools/pid/pid.hpp"
 
@@ -40,18 +39,20 @@ namespace
 using ::imu;
 using ::remote;
 
+constexpr bool kNoRemote = false;  // 调试用，正式版改回 false
+
 // ------------------------- 控制参数 -------------------------
 constexpr uint32_t kPeriodMs = 1;  // 与 imu_task 同为 1 ms
 constexpr float kDt = kPeriodMs * 1e-3f;
 
 // 位置环（rad -> rad/s）与速度环（rad/s -> N·m）串级，输出转矩
-constexpr float kPosKp = 25.0f;      // 先小后大：抖/叫就减半，跟不上就加倍
-constexpr float kPosMaxOut = 12.0f;  // 限速 rad/s
+constexpr float kPosKp = 3.0f;      // 先小后大：抖/叫就减半，跟不上就加倍
+constexpr float kPosMaxOut = 3.0f;  // 限速 rad/s
 
-constexpr float kSpdKp = 1.2f;
+constexpr float kSpdKp = 0.01f;
 constexpr float kSpdKi = 0.3f;
-constexpr float kSpdMaxOut = 1.5f;   // 转矩上限 N·m（6020 额定 0.741*3 ≈ 2.22 N·m）
-constexpr float kSpdMaxIOut = 0.5f;
+constexpr float kSpdMaxOut = 0.3f;  // 转矩上限 N·m（6020 额定 0.741*3 ≈ 2.22 N·m）
+constexpr float kSpdMaxIOut = 0.1f;
 
 // ------------------------- 手动转动检测 -------------------------
 // 位置误差超过阈值 -> 认为人在掰电机：这一帧不出力，并按当前角度更新参考姿态。
@@ -106,7 +107,7 @@ public:
 
   void Update()
   {
-    const auto right = remote.sw_r;
+    const auto right = kNoRemote ? sp::DBusSwitchMode::MID : remote.sw_r;
 
     // ---------------- 右拨杆下档：失能 ----------------
     if (right == sp::DBusSwitchMode::DOWN) {
@@ -196,8 +197,8 @@ public:
         a_ref_ = c1;
       }
 
-      sp_app::motor_a.cmd(0.0f);
-      sp_app::motor_b.cmd(0.0f);
+      sp_app::motor_a.cmd(1.0f);
+      sp_app::motor_b.cmd(1.0f);
       Send();
       return;
     }
@@ -240,8 +241,9 @@ private:
   void Command(float psi)
   {
     // 反馈丢失保护：100 ms 内没有反馈就不输出转矩，避免失控
-    if (!sp_app::motor_a.is_alive(osKernelSysTick()) ||
-        !sp_app::motor_b.is_alive(osKernelSysTick())) {
+    if (
+      !sp_app::motor_a.is_alive(osKernelSysTick()) ||
+      !sp_app::motor_b.is_alive(osKernelSysTick())) {
       sp_app::motor_a.cmd(0.0f);
       sp_app::motor_b.cmd(0.0f);
       Send();
@@ -266,12 +268,12 @@ private:
     }
   }
 
-  float k_ = sp_app::kRatioDown;   // 当前生效的比例（左拨杆）
-  float psi_ref_ = 0.0f;           // 参考姿态下的 C 板 yaw
-  float a_ref_ = 0.0f;             // 参考姿态下的 A 电机角度 c1
-  float b_ref_ = 0.0f;             // 参考姿态下的 B 电机角度 c2
-  bool manual_ = false;            // 正在被人手动转动
-  bool reset_latched_ = false;     // 上档复位只执行一次
+  float k_ = sp_app::kRatioDown;  // 当前生效的比例（左拨杆）
+  float psi_ref_ = 0.0f;          // 参考姿态下的 C 板 yaw
+  float a_ref_ = 0.0f;            // 参考姿态下的 A 电机角度 c1
+  float b_ref_ = 0.0f;            // 参考姿态下的 B 电机角度 c2
+  bool manual_ = false;           // 正在被人手动转动
+  bool reset_latched_ = false;    // 上档复位只执行一次
 };
 
 Linkage linkage;
@@ -290,8 +292,8 @@ extern "C" void linkage_task()
   linkage.Init();
 
   // 上电先把两台电机置于失能（右拨杆不在下档时才出力）
-  sp_app::motor_a.cmd(0.0f);
-  sp_app::motor_b.cmd(0.0f);
+  sp_app::motor_a.cmd(0.0f);  /////
+  sp_app::motor_b.cmd(0.0f);  ////
 
   while (true) {
     linkage.Update();
