@@ -138,8 +138,8 @@ extern "C" void imu_task()
 #endif
 
   while (true) {
-    bmi088.update();                      // 阻塞式 SPI 读，单位 m/s²、rad/s
-    imu.update(bmi088.acc, bmi088.gyro);  // Mahony 姿态解算
+    bmi088.update();
+    imu.update(bmi088.acc, bmi088.gyro);  // 注意：别再直接把 bmi088.gyro 传进去
 
 #if IMU_HEAT_ENABLE
     imu_temp_control(bmi088.temp);
