@@ -10,8 +10,13 @@
 //
 // 右拨杆（remote.sw_r）：下档 = 失能（两台电机无力）
 //                        中档 = 姿态联动
-//                        上档 = 复位（两台电机的指向标箭头对齐 C 板箭头，之后保持）
+//                        上档 = 复位（两臂箭头方向对齐 C 板箭头；停在上档时持续跟随对齐）
 // 左拨杆（remote.sw_l）决定 B 电机比例：下档 1:0.5 / 中档 1:-1 / 上档 1:3
+//
+// ★ 复位为什么不能直接把目标设成 psi：psi 的零点由 Mahony 上电时的朝向决定，
+//   而 motor.angle 是电机编码器的绝对角度，两者相差一个固定的安装偏移 off
+//   （对齐时 目标角 = psi + off）。off 在 Init() 里按"上电姿态即对齐姿态"记录，
+//   所以上电前要把两臂箭头掰到与 C 板箭头方向一致。
 //
 // 数学模型（详见同目录《设计说明_姿态联动.md》第二节）：
 //
@@ -55,6 +60,24 @@ constexpr float kSpdKi = 0.3f;
 constexpr float kSpdMaxOut = 0.3f;  // 转矩上限 N·m（6020 额定 0.741*3 ≈ 2.22 N·m）
 constexpr float kSpdMaxIOut = 0.1f;
 
+// ------------------------- 摩擦补偿与保持 -------------------------
+// 纯串级 PID 在静止/极低速时给不出克服静摩擦所需的力矩：位置环只能靠"留一点静差"
+// 让 P 项凑出力来，所以复位总差那么一点点。对策分两段：
+//   1) 接近目标途中：按误差方向补一个库仑摩擦前馈，帮它起转、补掉摩擦滞后；
+//   2) 已到目标附近：把力矩"锁存"住（冻结速度环积分），不再让积分继续蓄力。
+// ★ 第 2 条是关键：不锁存的话，积分在到位后会顶在饱和值上把机构推过目标，
+//   误差反向后积分再退回来 —— 表现就是"临近目标点时的低频抖动"。
+//   kFrictionTorque : 前馈满值(N·m)。太小 -> 复位留静差；太大 -> 到位前来回蹭。
+//                     调法：从 0.03 起每次 +0.01 直到静差消失，开始蹭就回退一档。
+//   kFrictionRampRad: 误差到这个大小前馈给满，再靠近就线性回收（避免"到点了还在推"）。
+//   kHoldRad        : 进入"保持区"的误差窗口，也是复位精度的上限（0.01 rad ≈ 0.57°）。
+//   kHoldSpeedRad   : 还要基本停住才算进入保持区（GM6020 转速反馈 1 rpm ≈ 0.105 rad/s，
+//                     阈值要高于静止时的 rpm 噪声）。
+constexpr float kFrictionTorque = 0.05f;     // N·m
+constexpr float kFrictionRampRad = 0.03f;    // rad ≈ 1.7°
+constexpr float kHoldRad = 0.01f;            // rad ≈ 0.57°
+constexpr float kHoldSpeedRad = 0.2f;        // rad/s ≈ 2 rpm
+
 // ------------------------- 手动转动检测 -------------------------
 // 判据：C 板基本没动、却有一台电机在动、而且离目标很远 -> 人在掰电机。
 // 只看"目标 - 实测"误差是不够的：把 C 板转快了位置环也会滞后出大误差；
@@ -77,20 +100,46 @@ public:
 
   float Update(sp::RM_Motor & motor, float target)
   {
+    const float err = target - motor.angle;
+
     pos_pid_.calc(target, motor.angle);        // 位置误差 -> 期望角速度
     spd_pid_.calc(pos_pid_.out, motor.speed);  // 角速度误差 -> 转矩
-    return spd_pid_.out;
+
+    // 摩擦前馈：满值 kFrictionTorque，误差小于 kFrictionRampRad 时线性回收
+    float ramp = err / kFrictionRampRad;
+    if (ramp > 1.0f) ramp = 1.0f;
+    if (ramp < -1.0f) ramp = -1.0f;
+    const float ff = kFrictionTorque * ramp;
+
+    // 保持区：误差很小且基本停住 -> 锁存力矩、冻结速度环积分，不再蓄力（见文件顶部说明）
+    const bool holding = std::fabs(err) < kHoldRad && std::fabs(motor.speed) < kHoldSpeedRad;
+
+    float out;
+    if (holding) {
+      spd_pid_.data.iout = hold_torque_;  // 冻结积分，退出保持区时不会突变
+      out = hold_torque_;
+    }
+    else {
+      out = spd_pid_.out + ff;
+      hold_torque_ = out;  // 记住"能推得动"的力矩，进入保持区时直接用它顶住
+    }
+
+    if (out > kSpdMaxOut) out = kSpdMaxOut;
+    if (out < -kSpdMaxOut) out = -kSpdMaxOut;
+    return out;
   }
 
   void Reset()
   {
     pos_pid_.clear();
     spd_pid_.clear();
+    hold_torque_ = 0.0f;
   }
 
 private:
   sp::PID pos_pid_;
   sp::PID spd_pid_;
+  float hold_torque_ = 0.0f;  // 保持区锁存的力矩（N·m）
 };
 
 Joint joint_a;
@@ -106,6 +155,12 @@ public:
     sp_app::yaw_unwrapper.Reset(imu.yaw);
     psi_ref_ = imu.yaw;
     SetRef(sp_app::motor_a.angle, sp_app::motor_b.angle);
+
+    // 复位用的"箭头对齐"偏移：两臂箭头与 C 板箭头方向一致时，目标角 = psi + off。
+    // 这里把"上电瞬间的姿态"当作已经对齐的姿态，所以上电前要（电机未通电、可用手掰）
+    // 把两臂箭头掰到与 C 板箭头方向一致。若上电姿态不可重复，把下面两行换成手测常量。
+    off_a_ = a_ref_ - psi_ref_;
+    off_b_ = b_ref_ - psi_ref_;
 
     manual_ = false;
     held_a_ = true;
@@ -151,20 +206,19 @@ public:
       manual_ = false;
       mid_active_ = false;
 
-      // 复位只在"刚拨到上档"那一刻执行一次：之后保持，避免把电机顶在目标上一直用力。
+      // 复位只在"刚拨到上档"那一刻清一次 PID 状态，避免换档冲击。
       if (!reset_latched_) {
         reset_latched_ = true;
-
-        // 复位姿态：两台电机都转到 C 板当前 yaw（thetaA = thetaB = psi），
-        // 并把这一姿态记为新的参考零点。由 thetaA=c1、thetaB=c2 得 c1=c2=psi。
-        psi_ref_ = psi;
-        SetRef(psi, psi);
         joint_a.Reset();
         joint_b.Reset();
       }
 
-      // 目标恒为复位姿态（psi_ref_），两台电机对齐 C 板箭头后保持不动。
-      // 若题目要求"上档对齐后仍继续跟随 C 板"，把这里改回传 psi。
+      // 复位姿态：两臂箭头方向与 C 板箭头一致 -> 目标角 = psi + off（off 见 Init()）。
+      // 每帧都按当前 psi 重算，所以停在上档期间转动 C 板，两臂箭头始终跟着对齐。
+      // ★ 不能写 SetRef(psi, psi)：psi 的零点由 Mahony 上电时的朝向决定，
+      //   和电机编码器的零点差一个安装偏移 off，直接相等会让两臂偏掉 off。
+      psi_ref_ = psi;
+      SetRef(psi + off_a_, psi + off_b_);
       Command(psi_ref_);
       return;
     }
@@ -319,6 +373,8 @@ private:
   float a_ref_ = 0.0f;            // 参考姿态下的 A 电机角度 c1
   float b_ref_ = 0.0f;            // 参考姿态下的 B 电机角度 c2
   float c_inv_ = 0.0f;            // 手动期间锁定的不变量：thetaB = k*thetaA + c_inv_
+  float off_a_ = 0.0f;            // 箭头对齐偏移：复位时 A 的目标角 = psi + off_a_
+  float off_b_ = 0.0f;            // 箭头对齐偏移：复位时 B 的目标角 = psi + off_b_
   bool manual_ = false;           // 正在被人手动转动
   bool held_a_ = true;            // 手动时被掰的是 A（否则是 B）
   bool reset_latched_ = false;    // 上档复位只执行一次
